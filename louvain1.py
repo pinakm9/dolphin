@@ -2,7 +2,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import community as com
 import numpy as np
-
+from networkx.drawing.nx_pydot import write_dot
 
 def revert_dict(d):
 	new_d = {}
@@ -28,6 +28,7 @@ def new_graph(partition, graph):
 		if cnode(val) not in map_:
 			map_[cnode(val)] = []
 		map_[cnode(val)].append(key)
+	write_dot(G, 'multi.dot')
 	return G, map_
 
 def unfold(map__):
@@ -37,41 +38,22 @@ def unfold(map__):
 	for cluster in map__[lvl(hl)]:
 		map_[cluster] = map__[lvl(hl)][cluster]
 	while hl > 0:
+		hl -= 1
 		for key in map_:
 			new_val = []
 			for elem in map_[key]:
-				new_val += map__[lvl(hl-1)][elem]
+				new_val += map__[lvl(hl)][elem]
 			map_[key] = new_val
-		hl -= 1
 	return map_
 		
-def modularity(partition, graph, A):
+def modularity(partition, graph, A, res=0.75):
 	m2 = np.sum(A)
 	s = 0 
 	for i, ni in enumerate(graph):
 		for j, nj in enumerate(graph):
 			if partition[ni] == partition[nj]: 
-				s += A[i,j] - graph.degree(ni)*graph.degree(nj)/m2
-	if s/m2 < -1:
-		print partition 
+				s += (A[i,j] if i != j else 2*A[i,j]) - res*graph.degree(ni)*graph.degree(nj)/m2
 	return s/m2
-
-def place_node(node, graph):
-	mod = {}
-	for n in graph.neighbors(node):
-		if n != node: # Deal with self-loops
-			partition = {}
-			for i, n_ in enumerate(graph):
-				if n_ != node:
-					partition[n_] = i
-			partition[node] = partition[n]
-			mod[n] = modularity(partition, graph)
-	max_, n_ = -1, node
-	for n in mod:
-		if max_ < mod[n]:
-			n_ = n
-			max_ = mod[n]
-	return [n_, max_]
 
 
 def trivial_partition(graph):
@@ -80,49 +62,35 @@ def trivial_partition(graph):
 		part[node] = i
 	return part
 
-def agglomerate(graph):
-	mod0 = modularity(trivial_partition(graph), graph)
-	part, i = {}, 0
-	for node in graph:
-		frnd, mod = place_node(node, graph)
-		print(mod, mod0)
-		if mod > mod0:
-			if frnd not in part:
-				part[frnd] = i
-				i += 1
-			part[node] = part[frnd]
-		else:
-			part[node] = i
-			i += 1
-	return part 
-
 def agg(graph):
 	part, adj = trivial_partition(graph), nx.to_numpy_matrix(graph)
+	max_ = modularity(part, graph, adj)
 	for node in graph:
-		part_, max_ = part, -2
-		for n in graph:
+		part_ = part
+		val = part[node]
+		for n in graph.neighbors(node):
 			part_[node] = part[n]
 			mod = modularity(part_, graph, adj)
-			#print mod
 			if mod > max_:
-				frnd, max_ = n, mod
-		part[node] = part[frnd]
+				val, max_ = part[n], mod
+		part[node] = val
 	for i, val in enumerate(set(part.values())):
 		for key in part:
 			if part[key] == val:
 				part[key] = i	
-	return part
+	return part, max_
 
-def detect(graph, level = 2):
-	G, part, map__, i = graph, {}, {}, 0
+def detect(graph):
+	G, part, map__, i, mod_ = graph, {}, {}, 0, -2
 	while True:
-		partition = agg(G)
-		l = partition.values()
-		print(len(l))
-		if len(partition.values()) <= level or i == 6:
-			break
+		partition, mod = agg(G)
+		print(revert_dict(partition), mod)
 		G, map_ = new_graph(partition, G)
 		map__['level '+ str(i)] = map_
+		if mod <= mod_:
+			break
+		mod_ = mod
 		i += 1
+	print(map__['level '+str(len(map__)-1)])
 	return partition, unfold(map__)
 
